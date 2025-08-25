@@ -1,0 +1,82 @@
+version: "2.0"
+
+services:
+  producer:
+    image: ghcr.io/my/repo/akash-backup-producer:latest
+    env:
+      - DATA_DIR=/data
+      # Optional: enable a simple tar export endpoint on :9000
+      - EXPORT_HTTP=1
+    expose:
+      - port: 9000
+        to:
+          - service: backup
+    params:
+      storage:
+        data:
+          mount: /data
+
+  backup:
+    image: ghcr.io/your/repo/akash-backup:latest
+    env:
+      # ---- restic config ----
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      # what to back up: either pull via HTTP, or mount SHM in the other SDL
+      - RESTIC_BACKUP_PATH=/tmp/ingest
+      - RESTIC_CRON=${RESTIC_CRON}
+      - RESTIC_FORGET_ARGS=${RESTIC_FORGET_ARGS}
+      - HEALTHCHECK_PORT=${HEALTHCHECK_PORT}
+      # optional: if pulling from producer over HTTP
+      - PRODUCER_URL=http://producer:9000/export
+    expose:
+      - port: 8081       # healthcheck
+        to:
+          - global: false
+
+profiles:
+  compute:
+    producer-profile:
+      resources:
+        cpu:
+          units: 0.5
+        memory:
+          size: 512Mi
+        storage:
+          - size: 1Gi    # ephemeral
+          - name: data   # persistent PV
+            size: 10Gi
+            attributes:
+              persistent: true
+              class: beta2  # ssd
+    backup-profile:
+      resources:
+        cpu:
+          units: 0.25
+        memory:
+          size: 512Mi
+        storage:
+          - size: 1Gi    # ephemeral only (backup holds nothing long-term)
+
+  placement:
+    global:
+      pricing:
+        producer-profile:
+          denom: uakt
+          amount: 1500
+        backup-profile:
+          denom: uakt
+          amount: 800
+
+deployment:
+  producer:
+    global:
+      profile: producer-profile
+      count: 1
+  backup:
+    global:
+      profile: backup-profile
+      count: 1

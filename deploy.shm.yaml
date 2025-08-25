@@ -1,0 +1,84 @@
+version: "2.0"
+
+services:
+  producer:
+    image: ghcr.io/my/repo/akash-backup-producer:latest
+    env:
+      - DATA_DIR=/data
+      - SHM_OUT=/dev/shm/outbox
+    params:
+      storage:
+        data:
+          mount: /data
+        shm:
+          mount: /dev/shm
+  backup:
+    image: ghcr.io/your/repo/akash-backup:latest
+    env:
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - RESTIC_BACKUP_PATH=/dev/shm/outbox
+      - RESTIC_CRON=${RESTIC_CRON}
+      - RESTIC_FORGET_ARGS=${RESTIC_FORGET_ARGS}
+      - HEALTHCHECK_PORT=${HEALTHCHECK_PORT}
+    params:
+      storage:
+        shm:
+          mount: /dev/shm
+
+profiles:
+  compute:
+    producer-profile:
+      resources:
+        cpu:
+          units: 0.5
+        memory:
+          size: 512Mi
+        storage:
+          - size: 512Mi
+          - name: data
+            size: 10Gi
+            attributes:
+              persistent: true
+              class: beta2
+          - name: shm
+            size: 1Gi
+            attributes:
+              persistent: false
+              class: ram    # SHM (tmpfs in RAM)
+    backup-profile:
+      resources:
+        cpu:
+          units: 0.25
+        memory:
+          size: 512Mi
+        storage:
+          - size: 512Mi
+          - name: shm
+            size: 1Gi
+            attributes:
+              persistent: false
+              class: ram
+
+  placement:
+    global:
+      pricing:
+        producer-profile:
+          denom: uakt
+          amount: 1500
+        backup-profile:
+          denom: uakt
+          amount: 800
+
+deployment:
+  producer:
+    global:
+      profile: producer-profile
+      count: 1
+  backup:
+    global:
+      profile: backup-profile
+      count: 1
